@@ -163,3 +163,7 @@ results/
 
 
 output/
+
+.codex
+
+data_debug/
