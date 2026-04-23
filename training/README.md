@@ -6,10 +6,16 @@ This is a re-implementation of our framework for training VGGT. This document sh
 
 Before you begin, ensure you have completed the following steps:
 
-1. **Install VGGT as a package:**
+1. **Install IGGT-reproduce as a package:**
+   
+   First, navigate to the repository root directory (parent of `training/`), then run:
    ```bash
    pip install -e .
    ```
+   
+   This installs the IGGT reproduction framework as an editable package, allowing imports like `from iggt.models import vggt` to work correctly.
+   
+   **Note:** This repository is a reproduction of VGGT/IGGT training. A `setup.py` has been provided at the root to enable package installation. The original VGGT repository had the setup file in its parent directory.
 
 2. **Prepare the dataset and annotations:**
    - Download the Co3D dataset from the [official repository](https://github.com/facebookresearch/co3d).
