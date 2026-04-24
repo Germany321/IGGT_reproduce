@@ -129,6 +129,9 @@ optim:
       - module_name: ["camera"]
         max_norm: 1.0
         norm_type: 2
+      - module_name: ["track", "part", ""]
+        max_norm: 1.0
+        norm_type: 2
   options:
     lr:
       - scheduler:
