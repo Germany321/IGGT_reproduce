@@ -1,6 +1,7 @@
 import math
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.nn.init import trunc_normal_
 
 def to_2tuple(x):
@@ -417,6 +418,15 @@ class SwinSA(nn.Module):
         attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
         return attn_mask
 
+    def check_image_size(self, x):
+        # Pad (B, C, H, W) so H and W are multiples of window_size.
+        _, _, h, w = x.shape
+        pad_h = (self.window_size - h % self.window_size) % self.window_size
+        pad_w = (self.window_size - w % self.window_size) % self.window_size
+        if pad_h == 0 and pad_w == 0:
+            return x
+        return F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
+
     def forward_features(self, x):
         x_size = (x.shape[2], x.shape[3])
         attn_mask = self.calculate_mask(x_size).to(x.device)
@@ -431,9 +441,12 @@ class SwinSA(nn.Module):
     def forward(self, x):
         # Input: (B, H, W, C), Output: (B, H, W, C)
         x = x.permute(0, 3, 1, 2) # (B, C, H, W)
+        h_orig, w_orig = x.shape[2], x.shape[3]
+        x = self.check_image_size(x)
         x = self.conv_after_body(self.forward_features(x)) + x
         x = self.conv_before_upsample(x)
         x = self.conv_last(x)
+        x = x[:, :, :h_orig, :w_orig]
         x = x.permute(0, 2, 3, 1).contiguous()
         return x
 
@@ -541,8 +554,13 @@ class SwinCA(SwinSA):
         x = x.permute(0, 3, 1, 2) # (B, C, H, W)
         k = k.permute(0, 3, 1, 2) # (B, C, H, W)
         v = v.permute(0, 3, 1, 2) # (B, C, H, W)
+        h_orig, w_orig = x.shape[2], x.shape[3]
+        x = self.check_image_size(x)
+        k = self.check_image_size(k)
+        v = self.check_image_size(v)
         x = self.conv_after_body(self.forward_features(x, k, v)) + x
         x = self.conv_before_upsample(x)
         x = self.conv_last(x)
+        x = x[:, :, :h_orig, :w_orig]
         x = x.permute(0, 2, 3, 1).contiguous()
         return x
