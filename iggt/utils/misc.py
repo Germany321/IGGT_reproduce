@@ -5,20 +5,9 @@ import torch
 import cv2
 import numpy as np
 from PIL import Image
-import matplotlib.cm as cm
 from jaxtyping import Float
 from torch import Tensor
-from sklearn.cluster import MiniBatchKMeans, DBSCAN
 from typing import Union, Tuple
-import matplotlib.pyplot as plt
-from sklearn.neighbors import NearestNeighbors
-from torch_geometric.nn import knn_graph
-from torch_scatter import scatter_mean
-
-try:
-    from cuml.cluster.hdbscan import HDBSCAN
-except:
-    from hdbscan import HDBSCAN
 
 def knn_avg_features_pyg(points_batch, features_batch, k, device='cpu'):
     """
@@ -39,6 +28,9 @@ def knn_avg_features_pyg(points_batch, features_batch, k, device='cpu'):
     """
     # 1. 数据类型转换和设备转移
     # 确保输入是PyTorch Tensor并转移到指定设备
+    from torch_geometric.nn import knn_graph
+    from torch_scatter import scatter_mean
+
     if isinstance(points_batch, np.ndarray):
         points_batch = torch.from_numpy(points_batch).float()
     if isinstance(features_batch, np.ndarray):
@@ -115,6 +107,13 @@ def cluster_features_to_masks_mv(
         feature_map_np = feature_map.cpu().numpy()
     else:
         feature_map_np = feature_map
+
+    try:
+        from cuml.cluster.hdbscan import HDBSCAN
+    except Exception:
+        from hdbscan import HDBSCAN
+    from sklearn.neighbors import NearestNeighbors
+    import matplotlib.pyplot as plt
 
     # 合并所有视图的特征做DBSCAN
     print(f"对所有视图特征合并后做DBSCAN聚类 (N={n}, H={h}, W={w}, C={c}) ...")
@@ -212,6 +211,13 @@ def cluster_features_to_masks(
         feature_map_np = feature_map.cpu().numpy()
     else:
         feature_map_np = feature_map
+
+    try:
+        from cuml.cluster.hdbscan import HDBSCAN
+    except Exception:
+        from hdbscan import HDBSCAN
+    from sklearn.neighbors import NearestNeighbors
+    import matplotlib.pyplot as plt
 
     # 改为每张图单独做dbscan
     print(f"对每张图单独做DBSCAN聚类 (N={n}, H={h}, W={w}, C={c}) ...")
@@ -797,6 +803,8 @@ def normalize_camera_extrinsics_and_points_batch(
         return new_extrinsics[:, :, :3], cam_points, new_world_points, depths
 
 def visualize_mask_with_colormap(batch_masks, cmap_name="tab20"):
+    import matplotlib.cm as cm
+
     masks = batch_masks[0]  # [N, H, W]
     if isinstance(masks, torch.Tensor):
         masks = masks.cpu().numpy()
@@ -821,6 +829,8 @@ def visualize_mask2former_topk(class_logits, mask_logits, cmap_name="tab20"):
     class_probs = class_logits.softmax(dim=-1)  # [num_queries, num_classes]
     scores, labels = class_probs.max(dim=-1)    # [num_queries] - confidence scores
     topk = 5
+
+    import matplotlib.cm as cm
 
     # 选取 topk 高置信度的 query
     topk_indices = torch.topk(scores, k=topk).indices
@@ -849,6 +859,8 @@ def visualize_mask2former_pixelwise_assignment(class_logits, mask_logits, cmap_n
 
     # Get soft masks and multiply by query score
     soft_masks = mask_logits.sigmoid() * scores[:, None, None]  # [num_queries, H, W]
+
+    import matplotlib.cm as cm
 
     # 进行 pixel-wise 最大得分选取（即每个像素来自哪个 query）
     soft_masks_np = soft_masks.detach().cpu().numpy()

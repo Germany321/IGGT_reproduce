@@ -5,6 +5,11 @@
 # LICENSE file in the root directory of this source tree.
 
 import argparse
+import os
+import tempfile
+
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "iggt-mplconfig"))
+
 from hydra import initialize, compose
 from omegaconf import DictConfig, OmegaConf
 from trainer import Trainer
