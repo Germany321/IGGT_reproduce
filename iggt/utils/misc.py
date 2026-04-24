@@ -4,7 +4,6 @@
 import torch
 import cv2
 import numpy as np
-from iggt.utils.vo_eval import save_trajectory_tum_format
 from PIL import Image
 import matplotlib.cm as cm
 from jaxtyping import Float
@@ -468,6 +467,8 @@ def invalid_to_zeros(arr, valid_mask, ndim=999):
 
 def save_tum_poses(traj, path):
     # traj = self.get_tum_poses()
+    from iggt.utils.vo_eval import save_trajectory_tum_format
+
     save_trajectory_tum_format(traj, path)
     return traj[0] # return the poses
 
