@@ -68,6 +68,12 @@ class DebugDataset(BaseDataset):
             raise ValueError(f"Invalid split: {split}")
 
         self.camera_id = camera_id
+        # Resolve relative paths against the project root (4 levels up from this file)
+        # so the config works regardless of the CWD at launch time.
+        if not osp.isabs(DEBUG_DATA_DIR) and not osp.exists(DEBUG_DATA_DIR):
+            _project_root = osp.dirname(osp.dirname(osp.dirname(osp.dirname(osp.abspath(__file__)))))
+            DEBUG_DATA_DIR = osp.join(_project_root, DEBUG_DATA_DIR)
+
         self.DEBUG_DATA_DIR = DEBUG_DATA_DIR
         self.frames_dir = osp.join(DEBUG_DATA_DIR, "frames")
 
