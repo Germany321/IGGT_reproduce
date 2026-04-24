@@ -1,7 +1,10 @@
 import math
 import torch
 import torch.nn as nn
-from basicsr.archs.arch_util import to_2tuple, trunc_normal_
+from torch.nn.init import trunc_normal_
+
+def to_2tuple(x):
+    return (x, x) if not isinstance(x, (list, tuple)) else tuple(x)
 from einops import rearrange
 from iggt.heads.block import MemEffAttention
 
