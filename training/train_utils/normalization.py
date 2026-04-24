@@ -7,7 +7,7 @@
 import torch
 import logging
 from typing import Optional, Tuple
-from vggt.utils.geometry import closed_form_inverse_se3
+from iggt.utils.geometry import closed_form_inverse_se3
 from train_utils.general import check_and_fix_inf_nan
 
 
