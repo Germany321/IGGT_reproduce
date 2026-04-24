@@ -169,3 +169,5 @@ output/
 data_debug/
 
 *.zip
+
+/logs
