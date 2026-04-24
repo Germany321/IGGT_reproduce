@@ -58,10 +58,8 @@ logging:
   log_level_secondary: WARNING
   all_ranks: False
   tensorboard_writer:
-    _target_: train_utils.wandb_writer.WandbLogger
-    project: iggt_debug
-    name: ${exp_name}
-    dir: ${logging.log_dir}
+    _target_: train_utils.tb_writer.TensorBoardLogger
+    path: ${logging.log_dir}/tensorboard
   scalar_keys_to_log:
     train:
       keys_to_log:
