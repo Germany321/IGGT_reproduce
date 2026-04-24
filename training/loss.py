@@ -46,23 +46,23 @@ class MultitaskLoss(torch.nn.Module):
         total_loss = 0
         loss_dict = {}
         
-        # Camera pose loss - if pose encodings are predicted
-        if "pose_enc_list" in predictions:
-            camera_loss_dict = compute_camera_loss(predictions, batch, **self.camera)   
-            camera_loss = camera_loss_dict["loss_camera"] * self.camera["weight"]   
+        # Camera pose loss - if pose encodings are predicted and configured
+        if "pose_enc_list" in predictions and self.camera is not None:
+            camera_loss_dict = compute_camera_loss(predictions, batch, **self.camera)
+            camera_loss = camera_loss_dict["loss_camera"] * self.camera["weight"]
             total_loss = total_loss + camera_loss
             loss_dict.update(camera_loss_dict)
-        
-        # Depth estimation loss - if depth maps are predicted
-        if "depth" in predictions:
+
+        # Depth estimation loss - if depth maps are predicted and configured
+        if "depth" in predictions and self.depth is not None:
             depth_loss_dict = compute_depth_loss(predictions, batch, **self.depth)
             depth_loss = depth_loss_dict["loss_conf_depth"] + depth_loss_dict["loss_reg_depth"] + depth_loss_dict["loss_grad_depth"]
             depth_loss = depth_loss * self.depth["weight"]
             total_loss = total_loss + depth_loss
             loss_dict.update(depth_loss_dict)
 
-        # 3D point reconstruction loss - if world points are predicted
-        if "world_points" in predictions:
+        # 3D point reconstruction loss - if world points are predicted and configured
+        if "world_points" in predictions and self.point is not None:
             point_loss_dict = compute_point_loss(predictions, batch, **self.point)
             point_loss = point_loss_dict["loss_conf_point"] + point_loss_dict["loss_reg_point"] + point_loss_dict["loss_grad_point"]
             point_loss = point_loss * self.point["weight"]
@@ -70,7 +70,7 @@ class MultitaskLoss(torch.nn.Module):
             loss_dict.update(point_loss_dict)
 
         # Tracking loss - not cleaned yet, dirty code is at the bottom of this file
-        if "track" in predictions:
+        if "track" in predictions and self.track is not None:
             raise NotImplementedError("Track loss is not cleaned up yet")
         
         loss_dict["objective"] = total_loss
