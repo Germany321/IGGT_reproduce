@@ -3,20 +3,25 @@ import re
 from copy import deepcopy
 from pathlib import Path
 
-import evo.main_ape as main_ape
-import evo.main_rpe as main_rpe
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
-from evo.core import sync
-from evo.core.metrics import PoseRelation, Unit
-from evo.core.trajectory import PosePath3D, PoseTrajectory3D
-try:
-    from evo.tools import file_interface, plot
-except:
-    from evo.tools import file_interface
 from scipy.spatial.transform import Rotation
+
+
+def _load_evo():
+    import evo.main_ape as main_ape
+    import evo.main_rpe as main_rpe
+    from evo.core import sync
+    from evo.core.metrics import PoseRelation, Unit
+    from evo.core.trajectory import PosePath3D, PoseTrajectory3D
+    try:
+        from evo.tools import file_interface, plot
+    except Exception:
+        from evo.tools import file_interface
+        plot = None
+    return main_ape, main_rpe, sync, PoseRelation, Unit, PosePath3D, PoseTrajectory3D, file_interface, plot
 
 
 def sintel_cam_read(filename):
@@ -110,6 +115,7 @@ def load_traj(gt_traj_file, traj_format="sintel", skip=0, stride=1, num_frames=N
     elif traj_format == "sintel":
         traj_tum, timestamps_mat = load_sintel_traj(gt_traj_file)
     elif traj_format in ["tum", "tartanair"]:
+        _, _, _, _, _, _, _, file_interface, _ = _load_evo()
         traj = file_interface.read_tum_trajectory_file(gt_traj_file)
         xyz = traj.positions_xyz
         quat = traj.orientations_quat_wxyz
@@ -148,7 +154,8 @@ def load_timestamps(time_file, traj_format="replica"):
         return timestamps_mat
 
 
-def make_traj(args) -> PoseTrajectory3D:
+def make_traj(args):
+    _, _, _, _, _, _, PoseTrajectory3D, _, _ = _load_evo()
     if isinstance(args, tuple) or isinstance(args, list):
         traj, tstamps = args
         return PoseTrajectory3D(
@@ -161,6 +168,7 @@ def make_traj(args) -> PoseTrajectory3D:
 
 
 def eval_metrics(pred_traj, gt_traj=None, seq="", filename="", sample_stride=1):
+    main_ape, main_rpe, sync, PoseRelation, Unit, _, _, _, _ = _load_evo()
     
     if sample_stride > 1:
         pred_traj[0] = pred_traj[0][::sample_stride]
@@ -247,6 +255,7 @@ def eval_metrics(pred_traj, gt_traj=None, seq="", filename="", sample_stride=1):
 
 
 def best_plotmode(traj):
+    _, _, _, _, _, _, _, _, plot = _load_evo()
     _, i1, i2 = np.argsort(np.var(traj.positions_xyz, axis=0))
     plot_axes = "xyz"[i2] + "xyz"[i1]
     return getattr(plot.PlotMode, plot_axes)
@@ -255,6 +264,7 @@ def best_plotmode(traj):
 def plot_trajectory(
     pred_traj, gt_traj=None, title="", filename="", align=True, correct_scale=True
 ):
+    _, _, sync, _, _, _, _, _, plot = _load_evo()
     pred_traj = make_traj(pred_traj)
 
     if gt_traj is not None:
