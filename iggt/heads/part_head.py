@@ -122,28 +122,13 @@ class PartHead(DPTHead):
                 - If feature_only=True: Feature maps with shape [B, S, C, H, W]
                 - Otherwise: Tuple of (predictions, confidence) both with shape [B, S, 1, H, W]
         """
-        B, S, _, H, W = images.shape
-
-        # If frames_chunk_size is not specified or greater than S, process all frames at once
-        if frames_chunk_size is None or frames_chunk_size >= S:
-            return self._forward_impl(aggregated_tokens_list, images, patch_start_idx, point_feat=point_feature)
-
-        # Otherwise, process frames in chunks to manage memory usage
-        assert frames_chunk_size > 0
-
-        # Process frames in batches
-        all_preds = []
-        all_conf = []
-
-        for frames_start_idx in range(0, S, frames_chunk_size):
-            frames_end_idx = min(frames_start_idx + frames_chunk_size, S)
-            chunk_preds, chunk_conf = self._forward_impl(
-                aggregated_tokens_list, images, patch_start_idx, frames_start_idx, frames_end_idx,
-                point_feat=point_feature
-            )
-            all_preds.append(chunk_preds)
-            all_conf.append(chunk_conf)
-        return torch.cat(all_preds, dim=1), torch.cat(all_conf, dim=1)
+        # PartHead operates on already-fused per-frame scratch features, so
+        # chunking by sequence length isn't applicable here. Always run the full
+        # forward; `frames_chunk_size` is accepted for API parity with DPTHead.
+        del frames_chunk_size
+        return self._forward_impl(
+            aggregated_tokens_list, images, patch_start_idx, point_feat=point_feature
+        )
 
     def scratch_forward(self, features: List[torch.Tensor], point_feat: List[torch.Tensor] = None) -> torch.Tensor:
         """
