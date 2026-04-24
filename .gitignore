@@ -167,3 +167,5 @@ output/
 .codex
 
 data_debug/
+
+*.zip
