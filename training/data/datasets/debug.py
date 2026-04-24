@@ -7,6 +7,7 @@
 import os
 import os.path as osp
 import logging
+import json
 import numpy as np
 import cv2
 from PIL import Image
@@ -34,6 +35,8 @@ class DebugDataset(BaseDataset):
         camera_id: int = 0,
         len_train: int = 10,
         len_test: int = 5,
+        load_instance_seg: bool = False,
+        mesh_only: bool = True,
     ):
         """
         Initialize the DebugDataset.
@@ -96,8 +99,21 @@ class DebugDataset(BaseDataset):
         self.depth_dir = depth_dir
         self.camview_dir = camview_dir
 
+        # Optional instance segmentation for the multi-view contrastive (MVC) loss.
+        # Pixel values in ObjectSegmentation_*.npy are global object_index values that
+        # are consistent across views — same physical object → same id everywhere.
+        self.load_instance_seg = load_instance_seg
+        self.mesh_only = mesh_only
+        self.seg_dir = osp.join(self.frames_dir, "ObjectSegmentation", f"camera_{camera_id}")
+        self.objects_dir = osp.join(self.frames_dir, "Objects", f"camera_{camera_id}")
+
         logging.info(f"Debug Dataset: Found {len(image_files)} images in {image_dir}")
         logging.info(f"Debug Dataset: Training length = {self.len_train}")
+        if self.load_instance_seg:
+            logging.info(
+                f"Debug Dataset: instance segmentation enabled "
+                f"(seg_dir={self.seg_dir}, mesh_only={self.mesh_only})"
+            )
 
     def get_data(
         self,
@@ -138,6 +154,7 @@ class DebugDataset(BaseDataset):
         intrinsics = []
         image_paths = []
         original_sizes = []
+        instance_segs = []
 
         for frame_id in ids:
             if frame_id >= len(self.image_files):
@@ -217,6 +234,17 @@ class DebugDataset(BaseDataset):
             image_paths.append(image_path)
             original_sizes.append(original_size)
 
+            if self.load_instance_seg:
+                # Instance segmentation map (int object_index per pixel).
+                # NOTE: the spatial transforms inside process_one_image (principal-point
+                # crop + resize) are not replicated exactly here; we just resize the raw
+                # seg to the processed image shape with nearest-neighbor. This is fine
+                # for the toy debug data where the principal point is near the image
+                # center. For real datasets, route the seg through the same crop/resize
+                # pipeline to preserve pixel-perfect alignment.
+                seg = self._load_instance_seg(frame_idx, image.shape[:2])
+                instance_segs.append(seg)
+
         set_name = "debug"
         seq_name = f"camera_{self.camera_id}"
 
@@ -233,4 +261,47 @@ class DebugDataset(BaseDataset):
             "point_masks": point_masks,
             "original_sizes": original_sizes,
         }
+        if self.load_instance_seg and len(instance_segs) > 0:
+            batch["instance_seg"] = instance_segs  # list of (H, W) int32 arrays
         return batch
+
+    def _load_instance_seg(self, frame_idx: int, target_hw: tuple) -> np.ndarray:
+        """Load a per-frame instance segmentation map and resize to target_hw.
+
+        Returns an int32 (H, W) array where each pixel value is the global
+        object_index (consistent across views). Pixels not belonging to a kept
+        object are set to 0 (treated as background by the MVC loss).
+        """
+        seg_path = osp.join(self.seg_dir, f"ObjectSegmentation_{frame_idx}_0_0001_0.npy")
+        if not osp.exists(seg_path):
+            logging.warning(f"Seg file not found: {seg_path}, returning zeros")
+            return np.zeros(target_hw, dtype=np.int32)
+
+        seg = np.load(seg_path).astype(np.int32)
+
+        if self.mesh_only:
+            keep_ids = self._mesh_object_indices(frame_idx)
+            if keep_ids is not None:
+                # Zero out pixels whose object_index isn't in keep_ids
+                keep_mask = np.isin(seg, list(keep_ids))
+                seg = np.where(keep_mask, seg, 0)
+
+        # Resize with nearest-neighbor to preserve instance ids
+        H_t, W_t = target_hw
+        if seg.shape != (H_t, W_t):
+            seg = cv2.resize(seg, (W_t, H_t), interpolation=cv2.INTER_NEAREST)
+        return seg.astype(np.int32)
+
+    def _mesh_object_indices(self, frame_idx: int):
+        """Read Objects_*.json and return the set of object_index values whose type is MESH."""
+        obj_path = osp.join(self.objects_dir, f"Objects_{frame_idx}_0_0001_0.json")
+        if not osp.exists(obj_path):
+            return None
+        try:
+            with open(obj_path) as f:
+                meta = json.load(f)
+        except Exception:
+            return None
+        return {v["object_index"] for v in meta.values()
+                if isinstance(v, dict) and v.get("type") == "MESH"
+                and "object_index" in v}

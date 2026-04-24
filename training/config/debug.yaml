@@ -32,6 +32,8 @@ data:
           DEBUG_DATA_DIR: data_debug/scene_000_extracted
           camera_id: 0
           len_train: 10
+          load_instance_seg: True
+          mesh_only: True
   val:
     _target_: data.dynamic_dataloader.DynamicTorchDataset
     num_workers: ${num_workers}
@@ -48,6 +50,8 @@ data:
           DEBUG_DATA_DIR: data_debug/scene_000_extracted
           camera_id: 0
           len_train: 5
+          load_instance_seg: True
+          mesh_only: True
 
 
 logging:
@@ -71,6 +75,10 @@ logging:
         - loss_conf_depth
         - loss_reg_depth
         - loss_grad_depth
+        - loss_mvc
+        - loss_pull
+        - loss_push
+        - loss_consistency
     val:
       keys_to_log:
         - loss_objective
@@ -81,6 +89,10 @@ logging:
         - loss_conf_depth
         - loss_reg_depth
         - loss_grad_depth
+        - loss_mvc
+        - loss_pull
+        - loss_push
+        - loss_consistency
 
 
 checkpoint:
@@ -101,6 +113,19 @@ loss:
     valid_range: 0.98
   point: null
   track: null
+  # Multi-view contrastive loss on per-frame part features (PartHead output).
+  # Set to null to disable. Requires `instance_seg` in the batch (DebugDataset
+  # provides it when `load_instance_seg: True`).
+  mvc:
+    weight: 1.0
+    delta_pull: 0.25
+    delta_push: 1.0
+    delta_consistency: 0.5
+    min_mask_pixels: 16
+    weight_pull: 2.0
+    weight_push: 1.0
+    weight_consistency: 2.0
+    background_id: 0
 
 
 optim:

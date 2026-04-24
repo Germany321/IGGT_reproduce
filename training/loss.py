@@ -24,13 +24,14 @@ class MultitaskLoss(torch.nn.Module):
     - Point loss
     - Tracking loss (not cleaned yet, dirty code is at the bottom of this file)
     """
-    def __init__(self, camera=None, depth=None, point=None, track=None, **kwargs):
+    def __init__(self, camera=None, depth=None, point=None, track=None, mvc=None, **kwargs):
         super().__init__()
         # Loss configuration dictionaries for each task
         self.camera = camera
         self.depth = depth
         self.point = point
         self.track = track
+        self.mvc = mvc
 
     def forward(self, predictions, batch) -> torch.Tensor:
         """
@@ -72,7 +73,17 @@ class MultitaskLoss(torch.nn.Module):
         # Tracking loss - not cleaned yet, dirty code is at the bottom of this file
         if "track" in predictions and self.track is not None:
             raise NotImplementedError("Track loss is not cleaned up yet")
-        
+
+        # Multi-view contrastive (MVC) loss on per-frame part features.
+        # Optional: requires `part_feat` in predictions and `instance_seg` in batch.
+        if (self.mvc is not None
+                and "part_feat" in predictions
+                and "instance_seg" in batch):
+            mvc_loss_dict = compute_mvc_loss(predictions, batch, **self.mvc)
+            mvc_loss = mvc_loss_dict["loss_mvc"] * self.mvc["weight"]
+            total_loss = total_loss + mvc_loss
+            loss_dict.update(mvc_loss_dict)
+
         loss_dict["objective"] = total_loss
 
         return loss_dict
@@ -806,4 +817,125 @@ def sequence_loss(flow_preds, flow_gt, vis, valids, gamma=0.8, vis_aware=False, 
     return flow_loss
 '''
 
+
+def compute_mvc_loss(
+    pred_dict,
+    batch_data,
+    weight: float = 1.0,                # used by caller; unused inside
+    delta_pull: float = 0.25,           # margin for intra-mask attraction
+    delta_push: float = 1.0,            # margin for inter-mask repulsion
+    delta_consistency: float = 0.5,     # margin for cross-view consistency
+    min_mask_pixels: int = 16,          # skip masks smaller than this (at feature resolution)
+    weight_pull: float = 2.0,
+    weight_push: float = 1.0,
+    weight_consistency: float = 2.0,
+    background_id: int = 0,
+    feat_key: str = "part_feat",
+    seg_key: str = "instance_seg",
+    **kwargs,
+):
+    """Multi-view contrastive loss on per-frame part features.
+
+    Implements the MVC objective the IGGT authors describe in their paper /
+    GitHub issue: a discriminative pixel-embedding loss with three terms,
+    pull (intra-mask), push (inter-mask within a view), and consistency
+    (mean embedding of the same instance across views should agree).
+
+    Inputs:
+        pred_dict[feat_key]: (B, S, C, Hf, Wf) part features.
+        batch_data[seg_key]: (B, S, Hs, Ws) int instance ids — same id =
+            same physical object across views.
+
+    Returns dict with `loss_mvc`, `loss_pull`, `loss_push`, `loss_consistency`.
+    """
+    feats = pred_dict[feat_key]            # (B, S, C, Hf, Wf)
+    segs = batch_data[seg_key]             # (B, S, Hs, Ws), long
+    if feats.dim() != 5:
+        raise ValueError(f"part_feat must be (B, S, C, H, W); got {tuple(feats.shape)}")
+
+    B, S, C, Hf, Wf = feats.shape
+    device = feats.device
+
+    # Promote feats to fp32 for stable distance math (the surrounding amp may be bf16).
+    feats = feats.float()
+
+    # Resize segs to feature resolution with nearest-neighbor.
+    if segs.shape[-2:] != (Hf, Wf):
+        segs_r = F.interpolate(
+            segs.float().view(B * S, 1, segs.shape[-2], segs.shape[-1]),
+            size=(Hf, Wf),
+            mode="nearest",
+        ).view(B, S, Hf, Wf).long()
+    else:
+        segs_r = segs.long()
+
+    pull_terms, push_terms = [], []
+    # batch_means[b][instance_id] -> list of (C,) mean tensors, one per view that saw it
+    batch_means = [{} for _ in range(B)]
+
+    for b in range(B):
+        for s in range(S):
+            feat_bs = feats[b, s].permute(1, 2, 0).reshape(-1, C)  # (Hf*Wf, C)
+            seg_bs = segs_r[b, s].view(-1)                         # (Hf*Wf,)
+
+            unique_ids = torch.unique(seg_bs)
+            unique_ids = unique_ids[unique_ids != background_id]
+            if unique_ids.numel() == 0:
+                continue
+
+            view_means = []
+            for inst_id in unique_ids.tolist():
+                mask = seg_bs == inst_id
+                n_pix = int(mask.sum().item())
+                if n_pix < min_mask_pixels:
+                    continue
+                pix = feat_bs[mask]                                 # (n_pix, C)
+                mean_feat = pix.mean(dim=0)                         # (C,)
+
+                # Pull: pixels in this mask close to its mean
+                dist = torch.norm(pix - mean_feat.unsqueeze(0), p=2, dim=1)  # (n_pix,)
+                pull_terms.append(F.relu(dist - delta_pull).mean())
+
+                view_means.append(mean_feat)
+                batch_means[b].setdefault(inst_id, []).append(mean_feat)
+
+            # Push: pairwise repulsion between distinct instance means in this view
+            if len(view_means) > 1:
+                m = torch.stack(view_means, dim=0)                  # (K, C)
+                dist_mat = torch.cdist(m, m, p=2)                   # (K, K)
+                eye = torch.eye(m.shape[0], device=device, dtype=torch.bool)
+                push_terms.append(F.relu(delta_push - dist_mat)[~eye].mean())
+
+    # Consistency: same instance across views — pairwise distance between view-means
+    cons_terms = []
+    for b in range(B):
+        for inst_id, view_list in batch_means[b].items():
+            if len(view_list) < 2:
+                continue
+            m = torch.stack(view_list, dim=0)                       # (V, C)
+            dist_mat = torch.cdist(m, m, p=2)
+            eye = torch.eye(m.shape[0], device=device, dtype=torch.bool)
+            cons_terms.append(F.relu(dist_mat[~eye] - delta_consistency).mean())
+
+    zero = feats.sum() * 0.0  # keeps a grad-safe zero on the right device/dtype
+    loss_pull = torch.stack(pull_terms).mean() if pull_terms else zero
+    loss_push = torch.stack(push_terms).mean() if push_terms else zero
+    loss_cons = torch.stack(cons_terms).mean() if cons_terms else zero
+
+    loss_pull = check_and_fix_inf_nan(loss_pull, "loss_pull", hard_max=None)
+    loss_push = check_and_fix_inf_nan(loss_push, "loss_push", hard_max=None)
+    loss_cons = check_and_fix_inf_nan(loss_cons, "loss_cons", hard_max=None)
+
+    loss_mvc = (
+        weight_pull * loss_pull
+        + weight_push * loss_push
+        + weight_consistency * loss_cons
+    )
+
+    return {
+        "loss_mvc": loss_mvc,
+        "loss_pull": loss_pull,
+        "loss_push": loss_push,
+        "loss_consistency": loss_cons,
+    }
 

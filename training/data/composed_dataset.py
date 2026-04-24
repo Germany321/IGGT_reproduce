@@ -144,6 +144,15 @@ class ComposedDataset(Dataset, ABC):
             "point_masks": point_masks,
         }
 
+        # --- Optional: instance segmentation for the MVC loss ---
+        # batch["instance_seg"] is a list of per-frame (H, W) int32 maps where
+        # pixel values are global object_index values that are consistent across
+        # views. Stacking gives (S, H, W); the dataloader will batch to (B, S, H, W).
+        if "instance_seg" in batch and batch["instance_seg"] is not None:
+            sample["instance_seg"] = torch.from_numpy(
+                np.stack(batch["instance_seg"]).astype(np.int32)
+            ).long()
+
         # --- Track Processing (if enabled) ---
         if self.load_track:
             if batch["tracks"] is not None:
