@@ -168,13 +168,13 @@ class DPTHead(nn.Module):
 
             # Process batch of frames
             if self.use_point_feat:
-                # chunk_preds, chunk_conf, chunk_output = self._forward_impl(
-                chunk_preds, chunk_conf, chunk_output = self._forward_impl(
-                    aggregated_tokens_list, images, patch_start_idx, frames_start_idx, frames_end_idx, 
+                chunk_preds, chunk_conf, chunk_feats = self._forward_impl(
+                    aggregated_tokens_list, images, patch_start_idx, frames_start_idx, frames_end_idx,
                 )
-                # all_preds.append(chunk_preds)
-                # all_conf.append(chunk_conf)
-                all_feats.append(chunk_output)
+                all_preds.append(chunk_preds)
+                all_conf.append(chunk_conf)
+                # chunk_feats is (out2, out3, out4); each is (B*chunk_S, C, H, W)
+                all_feats.append(chunk_feats)
             else:
                 chunk_preds, chunk_conf = self._forward_impl(
                     aggregated_tokens_list, images, patch_start_idx, frames_start_idx, frames_end_idx
@@ -184,8 +184,10 @@ class DPTHead(nn.Module):
 
         # Concatenate results along the sequence dimension
         if self.use_point_feat:
-            # return torch.cat(all_preds, dim=1), torch.cat(all_conf, dim=1), torch.cat(all_feats, dim=1)
-            return torch.cat(all_feats, dim=1)
+            # Concatenate each of the 3 feature levels independently across chunks.
+            # all_feats: list of (out2, out3, out4) -> tuple of 3 cat'd tensors.
+            cat_feats = tuple(torch.cat(level, dim=0) for level in zip(*all_feats))
+            return torch.cat(all_preds, dim=1), torch.cat(all_conf, dim=1), cat_feats
         else:
             return torch.cat(all_preds, dim=1), torch.cat(all_conf, dim=1)
 
