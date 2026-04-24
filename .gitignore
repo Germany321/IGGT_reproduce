@@ -171,3 +171,5 @@ data_debug/
 *.zip
 
 /logs
+
+src/
