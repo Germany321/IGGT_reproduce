@@ -67,6 +67,7 @@ class VGGT(nn.Module, PyTorchModelHubMixin):
             if self.camera_head is not None:
                 pose_enc_list = self.camera_head(aggregated_tokens_list)
                 predictions["pose_enc"] = pose_enc_list  # pose encoding of the last iteration
+                predictions["pose_enc_list"] = pose_enc_list  # Also output as pose_enc_list for loss compatibility
 
             if self.depth_head is not None:
                 depth, depth_conf = self.depth_head(
@@ -190,6 +191,7 @@ class IGGT(nn.Module, PyTorchModelHubMixin):
             if self.camera_head is not None:
                 pose_enc_list = self.camera_head(aggregated_tokens_list)
                 predictions["pose_enc"] = pose_enc_list  # pose encoding of the last iteration
+                predictions["pose_enc_list"] = pose_enc_list  # Also output as pose_enc_list for loss compatibility
 
             if self.depth_head is not None:
                 depth, depth_conf = self.depth_head(
