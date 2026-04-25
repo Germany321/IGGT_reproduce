@@ -28,6 +28,7 @@ class DynamicTorchDataset(ABC):
         persistent_workers: bool = False,
         seed: int = 42,
         max_img_per_gpu: int = 48,
+        batches_per_epoch: Optional[int] = None,
     ) -> None:
         self.dataset_config = dataset
         self.common_config = common_config
@@ -61,7 +62,8 @@ class DynamicTorchDataset(ABC):
             self.aspect_ratio_range,
             self.image_num_range,
             seed=seed,
-            max_img_per_gpu=max_img_per_gpu
+            max_img_per_gpu=max_img_per_gpu,
+            length=batches_per_epoch,
         )
 
         # Cached DataLoader — created once and reused across epochs so workers
@@ -110,7 +112,8 @@ class DynamicBatchSampler(Sampler):
                  image_num_range,
                  epoch=0,
                  seed=42,
-                 max_img_per_gpu=48):
+                 max_img_per_gpu=48,
+                 length=None):
         """
         Initializes the dynamic batch sampler.
 
@@ -121,6 +124,11 @@ class DynamicBatchSampler(Sampler):
             epoch: Current epoch number.
             seed: Random seed for reproducibility.
             max_img_per_gpu: Maximum number of images to fit in GPU memory.
+            length: Maximum batches per epoch. If None, uses len(sampler) as a
+                safe upper bound (each batch consumes >= 1 underlying sample).
+                Required for clean termination of the generator — an unbounded
+                generator left suspended by an early break (e.g. limit_train_batches)
+                deadlocks subsequent epochs when persistent_workers=True.
         """
         self.sampler = sampler
         self.aspect_ratio_range = aspect_ratio_range
@@ -141,6 +149,9 @@ class DynamicBatchSampler(Sampler):
 
         # Maximum image number per GPU
         self.max_img_per_gpu = max_img_per_gpu
+
+        # Bounded length so the generator terminates cleanly.
+        self.length = length if length is not None else len(sampler)
 
         # Set the epoch for the sampler
         self.set_epoch(epoch + seed)
@@ -164,8 +175,9 @@ class DynamicBatchSampler(Sampler):
             Iterator yielding batches of indices with associated parameters.
         """
         sampler_iterator = iter(self.sampler)
+        yielded = 0
 
-        while True:
+        while yielded < self.length:
             try:
                 # Sample random image number and aspect ratio
                 random_image_num = int(np.random.choice(self.possible_nums, p=self.normalized_weights))
@@ -195,13 +207,13 @@ class DynamicBatchSampler(Sampler):
                     break  # No more data to yield
 
                 yield current_batch
+                yielded += 1
 
             except StopIteration:
                 break  # End of sampler's iterator
 
     def __len__(self):
-        # Return a large dummy length
-        return 1000000
+        return self.length
 
 
 class DynamicDistributedSampler(DistributedSampler):
