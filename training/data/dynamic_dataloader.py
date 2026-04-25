@@ -64,6 +64,10 @@ class DynamicTorchDataset(ABC):
             max_img_per_gpu=max_img_per_gpu
         )
 
+        # Cached DataLoader — created once and reused across epochs so workers
+        # are not killed and respawned at the start of every epoch.
+        self._loader = None
+
     def get_loader(self, epoch):
         print("Building dynamic dataloader with epoch:", epoch)
 
@@ -74,21 +78,25 @@ class DynamicTorchDataset(ABC):
         if hasattr(self.dataset, "set_epoch"):
             self.dataset.set_epoch(epoch)
 
-        # Create and return the dataloader
-        return DataLoader(
-            self.dataset,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            batch_sampler=self.batch_sampler,
-            collate_fn=self.collate_fn,
-            persistent_workers=self.persistent_workers,
-            worker_init_fn=get_worker_init_fn(
-                seed=self.seed,
+        # Create the DataLoader only on the first call; reuse it afterwards.
+        # persistent_workers keeps worker processes alive between epochs so they
+        # don't need to re-import and re-initialize the dataset each time.
+        if self._loader is None:
+            self._loader = DataLoader(
+                self.dataset,
                 num_workers=self.num_workers,
-                epoch=epoch,
-                worker_init_fn=self.worker_init_fn,
-            ),
-        )
+                pin_memory=self.pin_memory,
+                batch_sampler=self.batch_sampler,
+                collate_fn=self.collate_fn,
+                persistent_workers=self.num_workers > 0,
+                worker_init_fn=get_worker_init_fn(
+                    seed=self.seed,
+                    num_workers=self.num_workers,
+                    epoch=epoch,
+                    worker_init_fn=self.worker_init_fn,
+                ),
+            )
+        return self._loader
         
 
 class DynamicBatchSampler(Sampler):
