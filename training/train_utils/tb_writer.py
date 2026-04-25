@@ -48,16 +48,12 @@ class TensorBoardLogger:
 
         # Generate a consistent timestamp across all ranks by having rank 0
         # broadcast the value so all processes use identical paths.
+        # broadcast_object_list works with any picklable object and does not
+        # require a CUDA tensor, so it is safe with the NCCL backend.
         if dist.is_available() and dist.is_initialized():
-            if self._rank == 0:
-                ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                ts_tensor = torch.tensor(
-                    [ord(c) for c in ts.ljust(20)], dtype=torch.int32
-                )
-            else:
-                ts_tensor = torch.zeros(20, dtype=torch.int32)
-            dist.broadcast(ts_tensor, src=0)
-            ts = "".join(chr(c) for c in ts_tensor.tolist()).strip()
+            ts_holder = [datetime.now().strftime("%Y-%m-%d_%H-%M-%S") if self._rank == 0 else ""]
+            dist.broadcast_object_list(ts_holder, src=0)
+            ts = ts_holder[0]
         else:
             ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 
