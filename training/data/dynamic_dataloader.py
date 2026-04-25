@@ -174,43 +174,41 @@ class DynamicBatchSampler(Sampler):
         Returns:
             Iterator yielding batches of indices with associated parameters.
         """
+        # Use a local rng seeded by a value that is identical across ranks so
+        # every rank picks the same image_num/aspect_ratio for each batch index.
+        # Without this, np.random.choice uses numpy's global state — which is
+        # seeded with a rank-dependent value upstream — so ranks produce
+        # different batch sizes and consume the underlying sampler at different
+        # rates, causing DDP all_reduce to deadlock between epochs.
+        rank_invariant_seed = (self.epoch * 100) & 0xFFFFFFFF
+        np_rng = np.random.default_rng(rank_invariant_seed)
+
         sampler_iterator = iter(self.sampler)
-        yielded = 0
 
-        while yielded < self.length:
-            try:
-                # Sample random image number and aspect ratio
-                random_image_num = int(np.random.choice(self.possible_nums, p=self.normalized_weights))
-                random_aspect_ratio = round(self.rng.uniform(self.aspect_ratio_range[0], self.aspect_ratio_range[1]), 2)
+        for _ in range(self.length):
+            random_image_num = int(np_rng.choice(self.possible_nums, p=self.normalized_weights))
+            random_aspect_ratio = round(self.rng.uniform(self.aspect_ratio_range[0], self.aspect_ratio_range[1]), 2)
 
-                # Update sampler parameters
-                self.sampler.update_parameters(
-                    aspect_ratio=random_aspect_ratio,
-                    image_num=random_image_num
-                )
+            self.sampler.update_parameters(
+                aspect_ratio=random_aspect_ratio,
+                image_num=random_image_num
+            )
 
-                # Calculate batch size based on max images per GPU and current image number
-                batch_size = self.max_img_per_gpu / random_image_num
-                batch_size = np.floor(batch_size).astype(int)
-                batch_size = max(1, batch_size)  # Ensure batch size is at least 1
+            batch_size = self.max_img_per_gpu // random_image_num
+            batch_size = max(1, batch_size)
 
-                # Collect samples for the current batch
-                current_batch = []
-                for _ in range(batch_size):
-                    try:
-                        item = next(sampler_iterator)  # item is (idx, aspect_ratio, image_num)
-                        current_batch.append(item)
-                    except StopIteration:
-                        break  # No more samples
+            # Collect exactly batch_size items, cycling the underlying sampler
+            # when exhausted so every rank yields the same number of batches.
+            current_batch = []
+            for _ in range(batch_size):
+                try:
+                    item = next(sampler_iterator)
+                except StopIteration:
+                    sampler_iterator = iter(self.sampler)
+                    item = next(sampler_iterator)
+                current_batch.append(item)
 
-                if not current_batch:
-                    break  # No more data to yield
-
-                yield current_batch
-                yielded += 1
-
-            except StopIteration:
-                break  # End of sampler's iterator
+            yield current_batch
 
     def __len__(self):
         return self.length
