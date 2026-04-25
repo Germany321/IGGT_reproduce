@@ -6,10 +6,13 @@
 
 import atexit
 import logging
+import os
 import uuid
+from datetime import datetime
 from typing import Any, Dict, Optional, Union
 
 import torch
+import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
 
 from .distributed import get_machine_local_and_dist_rank
@@ -33,20 +36,38 @@ class TensorBoardLogger:
         """Initialize TensorBoard logger.
 
         Args:
-            path: Directory path where TensorBoard logs will be stored
+            path: Directory path where TensorBoard logs will be stored.
+                  A timestamp subdirectory (YYYY-MM-DD_HH-MM-SS) is appended
+                  automatically so each run is isolated.
             filename_suffix: Optional suffix for log filename. If None, uses random UUID
             summary_writer_method: SummaryWriter class or compatible alternative
             *args, **kwargs: Additional arguments passed to SummaryWriter
         """
         self._writer: Optional[SummaryWriter] = None
         _, self._rank = get_machine_local_and_dist_rank()
-        self._path: str = path
+
+        # Generate a consistent timestamp across all ranks by having rank 0
+        # broadcast the value so all processes use identical paths.
+        if dist.is_available() and dist.is_initialized():
+            if self._rank == 0:
+                ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+                ts_tensor = torch.tensor(
+                    [ord(c) for c in ts.ljust(20)], dtype=torch.int32
+                )
+            else:
+                ts_tensor = torch.zeros(20, dtype=torch.int32)
+            dist.broadcast(ts_tensor, src=0)
+            ts = "".join(chr(c) for c in ts_tensor.tolist()).strip()
+        else:
+            ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+        self._path: str = os.path.join(path, ts)
         if self._rank == 0:
             logging.info(
-                f"TensorBoard SummaryWriter instantiated. Files will be stored in: {path}"
+                f"TensorBoard SummaryWriter instantiated. Files will be stored in: {self._path}"
             )
             self._writer = summary_writer_method(
-                log_dir=path,
+                log_dir=self._path,
                 *args,
                 filename_suffix=filename_suffix or str(uuid.uuid4()),
                 **kwargs,
