@@ -9,6 +9,7 @@ from typing import Callable, Optional
 from hydra.utils import instantiate
 import random
 import numpy as np
+import torch.distributed as dist
 from torch.utils.data import DataLoader, Dataset, DistributedSampler, IterableDataset, Sampler
 from abc import ABC, abstractmethod
 
@@ -73,8 +74,16 @@ class DynamicTorchDataset(ABC):
     def get_loader(self, epoch):
         print("Building dynamic dataloader with epoch:", epoch)
 
-        # Set the epoch for the sampler
-        self.sampler.set_epoch(epoch)
+        # The trainer passes epoch=trainer.epoch + distributed_rank, which is
+        # rank-dependent. For DistributedSampler to shard correctly all ranks
+        # must share the same epoch (it adds the rank internally), and for
+        # DynamicBatchSampler to stay in sync across ranks the same is true.
+        # Recover the rank-invariant epoch by subtracting the local rank.
+        rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else 0
+        rank_invariant_epoch = epoch - rank
+
+        self.sampler.set_epoch(rank_invariant_epoch)
+        self.batch_sampler.set_epoch(rank_invariant_epoch)
         if hasattr(self.dataset, "epoch"):
             self.dataset.epoch = epoch
         if hasattr(self.dataset, "set_epoch"):
