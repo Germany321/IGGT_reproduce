@@ -210,10 +210,16 @@ class Trainer:
         if self.rank == 0:
             logging.info(f"Model state loaded. Missing keys: {missing or 'None'}. Unexpected keys: {unexpected or 'None'}.")
 
-        # Load optimizer state if available and in training mode
+        # Load optimizer state if available and in training mode.
+        # Saved format: a list of state dicts (multi-optim) or a single state
+        # dict unwrapped from the 1-optim case (see save_checkpoint).
         if "optimizer" in checkpoint:
             logging.info(f"Loading optimizer state dict (rank {self.rank})")
-            self.optims.optimizer.load_state_dict(checkpoint["optimizer"])
+            optimizer_state = checkpoint["optimizer"]
+            if not isinstance(optimizer_state, list):
+                optimizer_state = [optimizer_state]
+            for optim, state in zip(self.optims, optimizer_state):
+                optim.optimizer.load_state_dict(state)
 
         # Load training progress
         if "epoch" in checkpoint:
