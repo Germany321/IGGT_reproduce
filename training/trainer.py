@@ -329,19 +329,10 @@ class Trainer:
             ):
                 checkpoint_names.append(f"checkpoint_{int(epoch)}")
 
-        checkpoint_content = {
-            "prev_epoch": epoch,
-            "steps": self.steps,
-            "time_elapsed": self.time_elapsed_meter.val,
-            "optimizer": [optim.optimizer.state_dict() for optim in self.optims],
-        }
-        
-        if len(self.optims) == 1:
-            checkpoint_content["optimizer"] = checkpoint_content["optimizer"][0]
-        if self.optim_conf.amp.enabled:
-            checkpoint_content["scaler"] = self.scaler.state_dict()
-
-        # Save the checkpoint for DDP only
+        # Only rank 0 writes the checkpoint, so only rank 0 needs to build the
+        # state dicts. Building optimizer.state_dict() on every rank materializes
+        # ~2× model-size of CUDA tensors (AdamW exp_avg + exp_avg_sq) per rank,
+        # which is what was spiking GPU memory to ~100G.
         saver = DDPCheckpointSaver(
             checkpoint_folder,
             checkpoint_names=checkpoint_names,
@@ -349,12 +340,32 @@ class Trainer:
             epoch=epoch,
         )
 
+        if self.distributed_rank != 0:
+            return
+
+        checkpoint_content = {
+            "prev_epoch": epoch,
+            "steps": self.steps,
+            "time_elapsed": self.time_elapsed_meter.val,
+            "optimizer": [
+                _state_dict_to_cpu(optim.optimizer.state_dict())
+                for optim in self.optims
+            ],
+        }
+
+        if len(self.optims) == 1:
+            checkpoint_content["optimizer"] = checkpoint_content["optimizer"][0]
+        if self.optim_conf.amp.enabled:
+            checkpoint_content["scaler"] = self.scaler.state_dict()
+
         if isinstance(self.model, torch.nn.parallel.DistributedDataParallel):
             model = self.model.module
+        else:
+            model = self.model
 
         saver.save_checkpoint(
             model=model,
-            ema_models = None,
+            ema_models=None,
             skip_saving_parameters=[],
             **checkpoint_content,
         )
@@ -824,6 +835,19 @@ class Trainer:
             )
 
 
+
+
+def _state_dict_to_cpu(sd: Any) -> Any:
+    """Recursively move CUDA tensors in a state_dict to CPU so torch.save
+    doesn't briefly double GPU memory while pickling."""
+    if isinstance(sd, torch.Tensor):
+        return sd.detach().cpu() if sd.is_cuda else sd
+    if isinstance(sd, dict):
+        return {k: _state_dict_to_cpu(v) for k, v in sd.items()}
+    if isinstance(sd, (list, tuple)):
+        out = [_state_dict_to_cpu(v) for v in sd]
+        return type(sd)(out) if isinstance(sd, tuple) else out
+    return sd
 
 
 def chunk_batch_for_accum_steps(batch: Mapping, accum_steps: int) -> List[Mapping]:
