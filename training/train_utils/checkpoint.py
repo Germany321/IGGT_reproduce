@@ -39,18 +39,25 @@ class DDPCheckpointSaver:
         model: nn.Module,
         **kwargs: Any,
     ) -> None:
-        checkpoint = dict(**kwargs)
-        checkpoint["model"] = model.state_dict()
+        if self.worker_id != 0:
+            return
 
-        if self.worker_id == 0:
-            for ckpt_name in self.checkpoint_names:
-                checkpoint_path = os.path.join(
-                    self.checkpoint_folder, f"{ckpt_name}.pt"
-                )
-                logging.info(
-                    f"Saving checkpoint at epoch {self.epoch} to {checkpoint_path}"
-                )
-                robust_torch_save(checkpoint, checkpoint_path)
+        # Pull weights to CPU before pickling — torch.save on CUDA tensors
+        # transiently doubles the GPU footprint of the state dict.
+        checkpoint = dict(**kwargs)
+        checkpoint["model"] = {
+            k: v.detach().cpu() if isinstance(v, torch.Tensor) and v.is_cuda else v
+            for k, v in model.state_dict().items()
+        }
+
+        for ckpt_name in self.checkpoint_names:
+            checkpoint_path = os.path.join(
+                self.checkpoint_folder, f"{ckpt_name}.pt"
+            )
+            logging.info(
+                f"Saving checkpoint at epoch {self.epoch} to {checkpoint_path}"
+            )
+            robust_torch_save(checkpoint, checkpoint_path)
 
 
 

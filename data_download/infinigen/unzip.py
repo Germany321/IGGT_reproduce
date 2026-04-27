@@ -32,7 +32,7 @@ def unzip_all_recursive(source_root, extract_to_root):
 if __name__ == "__main__":
     # Updated paths based on your current DolphinFS SSD location
     # source_folder: where the Hugging Face script saves the files
-    source_folder = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/native_mm/zhangquan/code/lhxk/workspace/streamIGGT/data/infinigen/processed_infinigen"
+    source_folder = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/native_mm/zhangquan/code/lhxk/workspace/streamIGGT/data/processed_infinigen"
     
     # target_folder: where you want the actual dataset files to live
     target_folder = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/native_mm/zhangquan/code/lhxk/workspace/streamIGGT/data/infinigen_extracted"
