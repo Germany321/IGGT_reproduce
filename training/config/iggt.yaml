@@ -109,8 +109,14 @@ logging:
 
 checkpoint:
   save_dir: logs/${exp_name}/ckpts
-  save_freq: 1
-  resume_checkpoint_path: null
+  save_freq: 2000
+  # Pretrained VGGT-1B weights are required for the frozen-aggregator recipe
+  # below to make sense. Run `python data_download/prepare_pretrained.py` once
+  # to materialise this file from facebook/VGGT-1B on Hugging Face.
+  # `strict: False` is intentional — the IGGT-only modules (part_adaptor,
+  # part_head, the extended point_head) are not in the VGGT-1B checkpoint
+  # and stay randomly initialised, which is what we want.
+  resume_checkpoint_path: checkpoints/vggt_1b.pt
   strict: False
 
 
