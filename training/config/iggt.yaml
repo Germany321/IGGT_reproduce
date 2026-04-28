@@ -34,10 +34,16 @@ data:
     dataset:
       _target_: data.composed_dataset.ComposedDataset
       dataset_configs:
-        - _target_: data.datasets.co3d.Co3dDataset
+        - _target_: data.datasets.infinigen.InfinigenDataset
           split: train
-          CO3D_DIR: /YOUR/PATH/TO/CO3D
-          CO3D_ANNOTATION_DIR: /YOUR/PATH/TO/CO3D_ANNOTATION
+          # Path to the directory produced by data_download/infinigen/unzip.py.
+          # Layout: ${INFINIGEN_DIR}/scene_XXX/<sub_id>/frames/...
+          INFINIGEN_DIR: /mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/native_mm/zhangquan/code/lhxk/workspace/streamIGGT/data/infinigen_extracted
+          camera_id: 0
+          min_num_images: 8
+          test_fraction: 0.05
+          load_instance_seg: True
+          mesh_only: True
   val:
     _target_: data.dynamic_dataloader.DynamicTorchDataset
     num_workers: ${num_workers}
@@ -50,10 +56,14 @@ data:
     dataset:
       _target_: data.composed_dataset.ComposedDataset
       dataset_configs:
-        - _target_: data.datasets.co3d.Co3dDataset
+        - _target_: data.datasets.infinigen.InfinigenDataset
           split: test
-          CO3D_DIR: /YOUR/PATH/TO/CO3D
-          CO3D_ANNOTATION_DIR: /YOUR/PATH/TO/CO3D_ANNOTATION
+          INFINIGEN_DIR: /mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/native_mm/zhangquan/code/lhxk/workspace/streamIGGT/data/infinigen_extracted
+          camera_id: 0
+          min_num_images: 8
+          test_fraction: 0.05
+          load_instance_seg: True
+          mesh_only: True
 
 
 logging:
