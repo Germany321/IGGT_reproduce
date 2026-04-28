@@ -2,45 +2,70 @@ import os
 import zipfile
 from tqdm import tqdm
 
-def unzip_all_recursive(source_root, extract_to_root):
-    """
-    Recursively finds all zip files in source_root and extracts them 
-    into a mirrored structure in extract_to_root.
-    """
-    # 1. Collect all zip files first for the progress bar
-    all_zips = []
-    for root, dirs, files in os.walk(source_root):
-        for file in files:
-            if file.endswith('.zip'):
-                all_zips.append(os.path.join(root, file))
-    
-    print(f"Found {len(all_zips)} zip files across all scene folders.")
+# ── Root paths ───────────────────────────────────────────────────────────────
+# Set INFINIGEN_ROOT to the directory that contains `processed_infinigen/`
+# (i.e. the same directory you passed as `local_dir` in download.py).
+# Set INFINIGEN_EXTRACT_ROOT to where extracted scenes should be written.
+# Priority for both: env var > DEFAULT_* below.
+DEFAULT_SOURCE_ROOT = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/native_mm/zhangquan/code/lhxk/workspace/streamIGGT/data/processed_infinigen"
+DEFAULT_EXTRACT_ROOT = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/native_mm/zhangquan/code/lhxk/workspace/streamIGGT/data/infinigen_extracted"
 
-    # 2. Extract each file
-    for zip_path in tqdm(all_zips, desc="Extracting Scenes"):
-        try:
-            # Determine the relative path to maintain folder structure if desired
-            # Or just extract everything to the target_folder
-            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                # We extract directly to target_folder
-                zip_ref.extractall(extract_to_root)
-        except zipfile.BadZipFile:
-            print(f"Skipping {zip_path}: Not a valid zip file.")
-        except Exception as e:
-            print(f"Error extracting {zip_path}: {e}")
+SOURCE_ROOT = os.environ.get("INFINIGEN_SOURCE_ROOT", DEFAULT_SOURCE_ROOT)
+EXTRACT_ROOT = os.environ.get("INFINIGEN_EXTRACT_ROOT", DEFAULT_EXTRACT_ROOT)
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def unzip_per_scene(source_root, extract_to_root):
+    """
+    For each scene_XXX folder in source_root, extract all of its zip files
+    into extract_to_root/scene_XXX/. Each zip inside a scene is treated as
+    one sub-asset of that scene (e.g. one camera/view) and is extracted into
+    its own subfolder named after the zip stem so files from different zips
+    don't collide.
+
+    Layout produced:
+        extract_to_root/
+            scene_000/
+                <zip_stem_a>/...
+                <zip_stem_b>/...
+            scene_001/
+                ...
+    """
+    if not os.path.isdir(source_root):
+        raise FileNotFoundError(f"SOURCE_ROOT does not exist: {source_root}")
+
+    scene_dirs = sorted(
+        d for d in os.listdir(source_root)
+        if d.startswith("scene_") and os.path.isdir(os.path.join(source_root, d))
+    )
+    print(f"Found {len(scene_dirs)} scene folders under {source_root}.")
+
+    total_zips = 0
+    for scene in scene_dirs:
+        scene_src = os.path.join(source_root, scene)
+        scene_dst = os.path.join(extract_to_root, scene)
+        os.makedirs(scene_dst, exist_ok=True)
+
+        zips = sorted(f for f in os.listdir(scene_src) if f.endswith(".zip"))
+        total_zips += len(zips)
+
+        for zname in tqdm(zips, desc=f"Extracting {scene}", leave=False):
+            zip_path = os.path.join(scene_src, zname)
+            stem = os.path.splitext(zname)[0]
+            out_dir = os.path.join(scene_dst, stem)
+            os.makedirs(out_dir, exist_ok=True)
+            try:
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    zf.extractall(out_dir)
+            except zipfile.BadZipFile:
+                print(f"Skipping {zip_path}: not a valid zip file.")
+            except Exception as e:
+                print(f"Error extracting {zip_path}: {e}")
+
+    print(f"\nExtraction complete! {total_zips} archives across {len(scene_dirs)} scenes.")
+
 
 if __name__ == "__main__":
-    # Updated paths based on your current DolphinFS SSD location
-    # source_folder: where the Hugging Face script saves the files
-    source_folder = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/native_mm/zhangquan/code/lhxk/workspace/streamIGGT/data/processed_infinigen"
-    
-    # target_folder: where you want the actual dataset files to live
-    target_folder = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/native_mm/zhangquan/code/lhxk/workspace/streamIGGT/data/infinigen_extracted"
-    
-    if not os.path.exists(target_folder):
-        os.makedirs(target_folder)
-        print(f"Created directory: {target_folder}")
-
-    unzip_all_recursive(source_folder, target_folder)
-    print(f"\nExtraction complete!")
-    print(f"Total available space on this drive: [run 'df -h {target_folder}' to check]")
+    os.makedirs(EXTRACT_ROOT, exist_ok=True)
+    unzip_per_scene(SOURCE_ROOT, EXTRACT_ROOT)
+    print(f"Output: {EXTRACT_ROOT}")

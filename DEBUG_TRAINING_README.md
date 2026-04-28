@@ -66,10 +66,10 @@ pip install -e .
 
 ```bash
 # Single GPU training
-python training/launch.py --config-name=debug
+python training/launch.py --config=debug
 
 # Multi-GPU training (e.g., 2 GPUs)
-torchrun --nproc_per_node=2 training/launch.py --config-name=debug
+torchrun --nproc_per_node=2 training/launch.py --config=debug
 ```
 
 ### 3. Test the Setup

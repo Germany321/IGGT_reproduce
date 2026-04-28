@@ -120,7 +120,7 @@ predictions + batch ───→ Loss Function ───→ loss_dict
   - [ ] Dataset loads ~101 frames
   - [ ] Model outputs all keys: pose_enc, depth, world_points, part_feat
   - [ ] Loss computes without NaN/Inf
-- [ ] Run training: `python training/launch.py --config-name=debug`
+- [ ] Run training: `python training/launch.py --config=debug`
   - [ ] Training loop runs without errors
   - [ ] Losses decrease over iterations
   - [ ] Checkpoints save

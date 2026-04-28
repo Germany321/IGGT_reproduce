@@ -27,10 +27,10 @@ This verifies that dataset, model, and loss all work together.
 ### Step 3: Run Training
 ```bash
 # Single GPU
-python training/launch.py --config-name=debug
+python training/launch.py --config=debug
 
 # Multi-GPU (e.g., 2 GPUs)
-torchrun --nproc_per_node=2 training/launch.py --config-name=debug
+torchrun --nproc_per_node=2 training/launch.py --config=debug
 ```
 
 ## Key Files

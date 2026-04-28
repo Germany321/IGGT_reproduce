@@ -70,7 +70,7 @@ pip install -e .
 python test_debug_setup.py
 
 # Step 3: Run training
-python training/launch.py --config-name=debug
+python training/launch.py --config=debug
 ```
 
 Expected runtime: **~30 seconds** (2 epochs × 10 batches)
@@ -164,7 +164,7 @@ pip install -e .
 python test_debug_setup.py
 
 # 3. Train (takes ~30 seconds)
-python training/launch.py --config-name=debug
+python training/launch.py --config=debug
 
 # 4. Check results
 ls logs/debug_exp/ckpts/  # Checkpoints
@@ -189,7 +189,7 @@ All components (dataset, model, config, documentation) are ready for use. The se
 - Prepare for Phase 2 MVC loss addition
 - Serve as reference for production training
 
-**Recommended next action**: Run `python test_debug_setup.py` to validate the setup, then proceed with `python training/launch.py --config-name=debug` to start training.
+**Recommended next action**: Run `python test_debug_setup.py` to validate the setup, then proceed with `python training/launch.py --config=debug` to start training.
 
 ---
 

@@ -96,7 +96,7 @@ Toy data structure verified:
 Setup:
 1. [x] `pip install -e .` - Install package
 2. [x] `python test_debug_setup.py` - Test setup (optional)
-3. [x] `python training/launch.py --config-name=debug` - Run training
+3. [x] `python training/launch.py --config=debug` - Run training
 
 ## Documentation ✓
 
@@ -152,7 +152,7 @@ None identified. All components are:
 ## Next Steps
 
 1. **Run validation**: `pip install -e . && python test_debug_setup.py`
-2. **Run training**: `python training/launch.py --config-name=debug`
+2. **Run training**: `python training/launch.py --config=debug`
 3. **Validate output**: Check logs/debug_exp/ for checkpoints
 4. **Proceed to Phase 2**: Add MVC loss if needed
 
