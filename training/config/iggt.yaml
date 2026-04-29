@@ -116,7 +116,7 @@ checkpoint:
   # `strict: False` is intentional — the IGGT-only modules (part_adaptor,
   # part_head, the extended point_head) are not in the VGGT-1B checkpoint
   # and stay randomly initialised, which is what we want.
-  resume_checkpoint_path: checkpoints/vggt_1b.pt
+  resume_checkpoint_path: /mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/native_mm/zhangquan/code/lhxk/workspace/streamIGGT/models/VGGT-1B/model.pt
   strict: False
 
 
