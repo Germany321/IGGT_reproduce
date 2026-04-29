@@ -22,9 +22,7 @@ import argparse
 import os
 import os.path as osp
 import re
-import shutil
 import zipfile
-from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
 
 
@@ -37,9 +35,6 @@ DEFAULT_EXTRACT_ROOT = "/mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/nati
 
 SOURCE_ROOT = os.environ.get("SCANNETPP_SOURCE_ROOT", DEFAULT_SOURCE_ROOT)
 EXTRACT_ROOT = os.environ.get("SCANNETPP_EXTRACT_ROOT", DEFAULT_EXTRACT_ROOT)
-
-# Tune via env: SCANNETPP_NUM_WORKERS (defaults to os.cpu_count()).
-NUM_WORKERS = int(os.environ.get("SCANNETPP_NUM_WORKERS", os.cpu_count() or 8))
 
 # Where to write the reassembled zip. Defaults to inside SOURCE_ROOT so it
 # sits next to the shards. Override with --combined-path / SCANNETPP_COMBINED_ZIP
@@ -111,76 +106,35 @@ def reassemble(source_root: str, combined_path: str, force: bool = False) -> str
     return combined_path
 
 
-def _extract_chunk(task):
-    """Worker: open the zip ONCE and extract a batch of members.
+def extract(combined_path: str, extract_to_root: str):
+    """Extract every member of the combined zip into extract_to_root.
 
-    Returns (n_done, [(member, err), ...]). Opening the zip per-call is the
-    expensive step (central-directory scan over millions of entries), so
-    each task batches several thousand members to amortise that cost.
-    """
-    zip_path, members, out_dir = task
-    failures = []
-    n_done = 0
-    try:
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            for m in members:
-                try:
-                    zf.extract(m, out_dir)
-                    n_done += 1
-                except Exception as e:
-                    failures.append((m, repr(e)))
-    except Exception as e:
-        # Fatal — couldn't even open the zip. Mark whole chunk as failed.
-        failures.extend((m, repr(e)) for m in members[n_done:])
-    return n_done, failures
+    Single-process by design: with 3M+ small files on a networked filesystem
+    the bottleneck is FS metadata ops, not CPU, so multi-process parallelism
+    barely helps and risks OOM-killing workers (each fork carries a full
+    central-directory copy in memory, ~600 MB for a 3M-entry zip).
 
-
-def _chunked(seq, n):
-    for i in range(0, len(seq), n):
-        yield seq[i:i + n]
-
-
-def extract(
-    combined_path: str,
-    extract_to_root: str,
-    num_workers: int = NUM_WORKERS,
-    chunk_size: int = 2000,
-):
-    """Extract every member of the combined zip into extract_to_root in parallel.
-
-    Members are grouped into chunks of `chunk_size` so each worker opens the
-    zip a handful of times instead of once per file. tqdm advances per
-    completed chunk (so progress is smooth even with millions of files).
+    For real parallel extraction of an archive this size, prefer the `7z` CLI
+    (`7z x combined.zip -mmt=16 -o<dst>`); see README.
     """
     os.makedirs(extract_to_root, exist_ok=True)
 
-    print(f"Scanning central directory of {combined_path} ...")
+    print(f"Opening {combined_path} (this scans the central directory) ...")
     with zipfile.ZipFile(combined_path, "r") as zf:
-        members = [m for m in zf.namelist() if not m.endswith("/")]
+        members = [info for info in zf.infolist() if not info.is_dir()]
+        print(f"Extracting {len(members)} files -> {extract_to_root}")
+        if not members:
+            print("No files to extract.")
+            return
 
-    chunks = list(_chunked(members, chunk_size))
-    print(
-        f"Extracting {len(members)} files in {len(chunks)} chunks of {chunk_size} "
-        f"with {num_workers} workers -> {extract_to_root}"
-    )
-    if not members:
-        print("No files to extract.")
-        return
-
-    tasks = ((combined_path, c, extract_to_root) for c in chunks)
-    failures = []
-    total_done = 0
-    with ProcessPoolExecutor(max_workers=num_workers) as pool:
-        # Use a bounded submit pattern so we don't pre-pickle every chunk.
-        # imap-style streaming via map() with chunksize=1 keeps the queue small
-        # and lets tqdm start advancing immediately.
-        for n_done, chunk_failures in tqdm(
-            pool.map(_extract_chunk, tasks, chunksize=1),
-            total=len(chunks),
-            desc="Extracting (chunks)",
-        ):
-            total_done += n_done
-            failures.extend(chunk_failures)
+        failures = []
+        # tqdm.update on every file keeps the bar smooth even when individual
+        # extracts are sub-millisecond on the local cache hits.
+        for info in tqdm(members, desc="Extracting", unit="file"):
+            try:
+                zf.extract(info, extract_to_root)
+            except Exception as e:
+                failures.append((info.filename, repr(e)))
 
     if failures:
         print(f"\n{len(failures)} file(s) failed:")
@@ -188,7 +142,7 @@ def extract(
             print(f"  {name}: {err}")
         if len(failures) > 20:
             print(f"  ... and {len(failures) - 20} more")
-    print(f"\nExtraction complete! {total_done}/{len(members)} files.")
+    print(f"\nExtraction complete! {len(members) - len(failures)}/{len(members)} files.")
 
 
 def parse_args():
@@ -205,7 +159,6 @@ def parse_args():
         ),
         help="Where to write the reassembled .zip (defaults inside source root).",
     )
-    p.add_argument("--workers", type=int, default=NUM_WORKERS, help="Parallel extract workers.")
     p.add_argument("--force", action="store_true", help="Re-reassemble even if combined zip exists.")
     p.add_argument("--keep-combined", action="store_true",
                    help="Don't delete the combined zip after a successful extract.")
@@ -225,7 +178,7 @@ def main():
         print(f"Reassembly only — combined zip at: {args.combined_path}")
         return
 
-    extract(args.combined_path, args.extract_root, num_workers=args.workers)
+    extract(args.combined_path, args.extract_root)
 
     if not args.keep_combined:
         try:
