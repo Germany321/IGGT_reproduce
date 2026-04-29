@@ -24,7 +24,7 @@ import os.path as osp
 import re
 import shutil
 import zipfile
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor
 from tqdm import tqdm
 
 
@@ -111,39 +111,76 @@ def reassemble(source_root: str, combined_path: str, force: bool = False) -> str
     return combined_path
 
 
-def _extract_one(task):
-    zip_path, member, out_dir = task
+def _extract_chunk(task):
+    """Worker: open the zip ONCE and extract a batch of members.
+
+    Returns (n_done, [(member, err), ...]). Opening the zip per-call is the
+    expensive step (central-directory scan over millions of entries), so
+    each task batches several thousand members to amortise that cost.
+    """
+    zip_path, members, out_dir = task
+    failures = []
+    n_done = 0
     try:
         with zipfile.ZipFile(zip_path, "r") as zf:
-            zf.extract(member, out_dir)
-        return member, True, None
+            for m in members:
+                try:
+                    zf.extract(m, out_dir)
+                    n_done += 1
+                except Exception as e:
+                    failures.append((m, repr(e)))
     except Exception as e:
-        return member, False, repr(e)
+        # Fatal — couldn't even open the zip. Mark whole chunk as failed.
+        failures.extend((m, repr(e)) for m in members[n_done:])
+    return n_done, failures
 
 
-def extract(combined_path: str, extract_to_root: str, num_workers: int = NUM_WORKERS):
-    """Extract every member of the combined zip into extract_to_root in parallel."""
+def _chunked(seq, n):
+    for i in range(0, len(seq), n):
+        yield seq[i:i + n]
+
+
+def extract(
+    combined_path: str,
+    extract_to_root: str,
+    num_workers: int = NUM_WORKERS,
+    chunk_size: int = 2000,
+):
+    """Extract every member of the combined zip into extract_to_root in parallel.
+
+    Members are grouped into chunks of `chunk_size` so each worker opens the
+    zip a handful of times instead of once per file. tqdm advances per
+    completed chunk (so progress is smooth even with millions of files).
+    """
     os.makedirs(extract_to_root, exist_ok=True)
 
+    print(f"Scanning central directory of {combined_path} ...")
     with zipfile.ZipFile(combined_path, "r") as zf:
         members = [m for m in zf.namelist() if not m.endswith("/")]
 
+    chunks = list(_chunked(members, chunk_size))
     print(
-        f"Extracting {len(members)} files from {combined_path} "
+        f"Extracting {len(members)} files in {len(chunks)} chunks of {chunk_size} "
         f"with {num_workers} workers -> {extract_to_root}"
     )
     if not members:
         print("No files to extract.")
         return
 
-    tasks = [(combined_path, m, extract_to_root) for m in members]
+    tasks = ((combined_path, c, extract_to_root) for c in chunks)
     failures = []
+    total_done = 0
     with ProcessPoolExecutor(max_workers=num_workers) as pool:
-        futures = [pool.submit(_extract_one, t) for t in tasks]
-        for fut in tqdm(as_completed(futures), total=len(futures), desc="Extracting"):
-            name, ok, err = fut.result()
-            if not ok:
-                failures.append((name, err))
+        # Use a bounded submit pattern so we don't pre-pickle every chunk.
+        # imap-style streaming via map() with chunksize=1 keeps the queue small
+        # and lets tqdm start advancing immediately.
+        for n_done, chunk_failures in tqdm(
+            pool.map(_extract_chunk, tasks, chunksize=1),
+            total=len(chunks),
+            desc="Extracting (chunks)",
+        ):
+            total_done += n_done
+            failures.extend(chunk_failures)
 
     if failures:
         print(f"\n{len(failures)} file(s) failed:")
@@ -151,7 +188,7 @@ def extract(combined_path: str, extract_to_root: str, num_workers: int = NUM_WOR
             print(f"  {name}: {err}")
         if len(failures) > 20:
             print(f"  ... and {len(failures) - 20} more")
-    print(f"\nExtraction complete! {len(members) - len(failures)}/{len(members)} files.")
+    print(f"\nExtraction complete! {total_done}/{len(members)} files.")
 
 
 def parse_args():
