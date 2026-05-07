@@ -44,6 +44,16 @@ data:
           test_fraction: 0.05
           load_instance_seg: True
           mesh_only: True
+        - _target_: data.datasets.scannetpp.ScanNetPPDataset
+          split: train
+          # Path to the directory produced by data_download/scannetpp/unzip.py.
+          # Layout: ${SCANNETPP_DIR}/<scene_id>/{depth,images,refined_ins_ids,scene_iphone_metadata.npz}
+          SCANNETPP_DIR: /mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/native_mm/zhangquan/code/lhxk/workspace/streamIGGT/data/processed_scannetpp_v2_extracted/processed_scannetpp_v2
+          min_num_images: 8
+          test_fraction: 0.05
+          depth_scale: 1000.0
+          frame_stride: 1
+          load_instance_seg: True
   val:
     _target_: data.dynamic_dataloader.DynamicTorchDataset
     num_workers: ${num_workers}
@@ -64,6 +74,14 @@ data:
           test_fraction: 0.05
           load_instance_seg: True
           mesh_only: True
+        - _target_: data.datasets.scannetpp.ScanNetPPDataset
+          split: test
+          SCANNETPP_DIR: /mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/native_mm/zhangquan/code/lhxk/workspace/streamIGGT/data/processed_scannetpp_v2_extracted/processed_scannetpp_v2
+          min_num_images: 8
+          test_fraction: 0.05
+          depth_scale: 1000.0
+          frame_stride: 1
+          load_instance_seg: True
 
 
 logging:

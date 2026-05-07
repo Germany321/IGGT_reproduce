@@ -53,6 +53,8 @@ To set up the environment for this project, please follow these steps:
 
 > **Note**: To accelerate clustering (DBSCAN) significantly, we highly recommend installing `cuml` from RAPIDS. Please refer to the [official installation guide](https://docs.rapids.ai/install/#selector) to choose the appropriate version for your system.
 
+> **NOTE from LHXK**: the official `requirements.txt` is too complex. The better guidance can be found: https://github.com/lifuguan/IGGT_official/issues/5#issuecomment-3557789053 .
+
 
 ### Running the Demo
 
