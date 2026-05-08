@@ -27,6 +27,9 @@ data:
       patch_size: ${patch_size}
       debug: False
       repeat_batch: False
+      # Force exactly N images per scene per batch (overrides default [2, 24]).
+      # The DynamicBatchSampler picks uniformly from this range, so [N, N] = constant N.
+      img_nums: [16, 16]
     dataset:
       _target_: data.composed_dataset.ComposedDataset
       dataset_configs:
@@ -49,6 +52,8 @@ data:
       img_size: ${img_size}
       patch_size: ${patch_size}
       debug: False
+      # Match train: constant 16 images per scene per val batch.
+      img_nums: [16, 16]
     dataset:
       _target_: data.composed_dataset.ComposedDataset
       dataset_configs:
@@ -105,7 +110,12 @@ logging:
 
 checkpoint:
   save_dir: logs/${exp_name}/ckpts
-  save_freq: 2000
+  # save_freq is in EPOCHS — controls per-epoch named snapshots like checkpoint_5.pt
+  save_freq: 1
+  # save_step_freq is in TRAIN BATCHES — overwrites the rolling checkpoint.pt
+  # mid-epoch so a crashed run can resume with at most this many lost batches.
+  # Set to 0 or null to disable step-based saves.
+  save_step_freq: 2000
   resume_checkpoint_path: /mnt/dolphinfs/ssd_pool/docker/user/hadoop-nlp-sh02/native_mm/zhangquan/code/lhxk/workspace/streamIGGT/models/VGGT-1B/model.pt
   strict: False
 

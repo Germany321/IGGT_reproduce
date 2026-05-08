@@ -635,7 +635,7 @@ class Trainer:
                     loss_meters[f"Grad/{key}"].update(grad_norm)
 
             # Optimizer step
-            for optim in self.optims:   
+            for optim in self.optims:
                 self.scaler.step(optim.optimizer)
             self.scaler.update()
 
@@ -649,6 +649,13 @@ class Trainer:
 
             if data_iter % self.logging_conf.log_freq == 0:
                 progress.display(data_iter)
+
+            # Step-based rolling checkpoint for crash recovery on flaky hosts.
+            # Always overwrites `checkpoint.pt` (no per-step snapshots — that
+            # would blow up disk). Set to 0/null in config to disable.
+            save_step_freq = getattr(self.checkpoint_conf, "save_step_freq", 0) or 0
+            if save_step_freq > 0 and (data_iter + 1) % save_step_freq == 0:
+                self.save_checkpoint(self.epoch, checkpoint_names=["checkpoint"])
 
         return True
 
